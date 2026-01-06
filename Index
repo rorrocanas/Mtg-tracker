@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>MTG Life Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="MTG Life">
+
+<link rel="apple-touch-icon" href="icon-192.png">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js');
+  }
+</script> 
+<style>
+    body {
+      margin: 0;
+      background: #050505;
+      color: white;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ===== SCREENS ===== */
+    .screen {
+      min-height: 100vh;
+      padding: 20px;
+      display: none;
+    }
+    .screen.active { display: block; }
+
+    button {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .btn {
+      background: white;
+      color: black;
+    }
+
+    .btn-dark {
+      background: #222;
+      color: white;
+    }
+
+    select {
+      padding: 8px;
+      border-radius: 8px;
+      background: #111;
+      color: white;
+      border: 1px solid #333;
+    }
+
+    /* ===== SETUP ===== */
+    .player-setup {
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 12px;
+      border-radius: 12px;
+      margin-top: 10px;
+      background: #0b0b0b;
+    }
+
+    .color-picker {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .color-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+    }
+
+    .color-btn.active {
+      border-color: white;
+      transform: scale(1.15);
+    }
+
+    /* ===== GAME GRID ===== */
+    .players {
+      position: relative;
+      display: grid;
+      height: 100vh;
+      transition: all 0.2s ease;
+    }
+
+    /* ===== PLAYER CARD ===== */
+    .player {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      user-select: none;
+      border: 2px solid rgba(255,255,255,0.2);
+      box-sizing: border-box;
+    }
+
+    .player::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+      pointer-events: none;
+    }
+
+    .player-name {
+      font-size: 14px;
+      opacity: 0.75;
+      letter-spacing: 0.2em;
+      margin-bottom: 6px;
+    }
+
+    .life {
+      font-size: 76px;
+      font-weight: 900;
+    }
+
+    /* ===== TAP ZONES ===== */
+    .tap-zone {
+      position: absolute;
+      top: 0;
+      width: 50%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      opacity: 0.08;
+      pointer-events: none;
+    }
+
+    .tap-zone.left { left: 0; }
+    .tap-zone.right { right: 0; }
+
+    .player:active .tap-zone {
+      opacity: 0.18;
+    }
+
+    /* ===== TIMER ===== */
+    .timer {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #111;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-weight: bold;
+      z-index: 10;
+    }
+
+    /* ===== CONTROLS ===== */
+    .controls {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      background: #111;
+      padding: 10px;
+      border-radius: 999px;
+      z-index: 10;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ===== SETUP ===== -->
+<div id="setup" class="screen active">
+  <h1>MTG LIFE</h1>
+
+  <label>Jugadores</label><br>
+  <select id="playerCount" onchange="updateSetupPlayers()">
+    <option value="2">2</option>
+    <option value="3">3</option>
+    <option value="4">4</option>
+  </select>
+
+  <br><br>
+
+  <label>Vida inicial</label><br>
+  <select id="startingLife">
+    <option value="20">20</option>
+    <option value="30">30</option>
+    <option value="40">40</option>
+  </select>
+
+  <br><br>
+
+  <label>Orientación</label><br>
+  <select id="orientation">
+    <option value="portrait">Portrait (vertical)</option>
+    <option value="landscape">Landscape (horizontal)</option>
+  </select>
+
+  <div id="playersSetup"></div>
+
+  <br>
+  <button class="btn" onclick="startGame()">Iniciar juego</button>
+</div>
+
+<!-- ===== GAME ===== -->
+<div id="game" class="screen">
+  <div class="timer" id="timer">0:00</div>
+  <div class="players" id="players"></div>
+
+  <div class="controls">
+    <button class="btn-dark" onclick="toggleTimer()">⏯</button>
+    <button class="btn-dark" onclick="resetGame()">🔄</button>
+    <button class="btn-dark" onclick="goSetup()">⚙</button>
+  </div>
+</div>
+
+<script>
+  /* ===== COLORS ===== */
+  const COLORS = [
+    { name: "White", bg: "#1e293b", text: "#ffffff" },
+    { name: "Blue",  bg: "#172554", text: "#60a5fa" },
+    { name: "Black", bg: "#18181b", text: "#a1a1aa" },
+    { name: "Red",   bg: "#450a0a", text: "#f87171" },
+    { name: "Green", bg: "#052e16", text: "#4ade80" }
+  ];
+
+  let setupPlayers = [];
+  let selectedOrientation = "portrait";
+
+  let game = {
+    players: [],
+    startingLife: 20,
+    timer: { running: false, start: 0, elapsed: 0 }
+  };
+
+  let timerInterval = null;
+
+  /* ===== SETUP ===== */
+
+  function updateSetupPlayers() {
+    const count = Number(playerCount.value);
+    setupPlayers = Array.from({ length: count }, (_, i) => ({
+      name: `Player ${i + 1}`,
+      color: COLORS[i % COLORS.length]
+    }));
+    renderSetupPlayers();
+  }
+
+  function renderSetupPlayers() {
+    playersSetup.innerHTML = "";
+
+    setupPlayers.forEach((p, i) => {
+      const div = document.createElement("div");
+      div.className = "player-setup";
+
+      div.innerHTML = `
+        <strong>${p.name}</strong>
+        <div class="color-picker">
+          ${COLORS.map(c => `
+            <div class="color-btn ${p.color.name === c.name ? "active" : ""}"
+                 style="background:${c.bg}"
+                 onclick="setPlayerColor(${i}, '${c.name}')"></div>
+          `).join("")}
+        </div>
+      `;
+
+      playersSetup.appendChild(div);
+    });
+  }
+
+  function setPlayerColor(index, colorName) {
+    setupPlayers[index].color = COLORS.find(c => c.name === colorName);
+    renderSetupPlayers();
+  }
+
+  /* ===== START GAME ===== */
+
+  function startGame() {
+    game.startingLife = Number(startingLife.value);
+    selectedOrientation = orientation.value;
+
+    game.players = setupPlayers.map(p => ({
+      name: p.name,
+      life: game.startingLife,
+      color: p.color
+    }));
+
+    setupGrid();
+    renderPlayers();
+    showScreen("game");
+  }
+
+  function setupGrid() {
+    const count = game.players.length;
+
+    if (selectedOrientation === "portrait") {
+      if (count === 2) {
+        players.style.gridTemplateColumns = "1fr";
+        players.style.gridTemplateRows = "1fr 1fr";
+      } else {
+        players.style.gridTemplateColumns = "1fr 1fr";
+        players.style.gridTemplateRows = "1fr 1fr";
+      }
+    } else {
+      if (count === 2) {
+        players.style.gridTemplateColumns = "1fr 1fr";
+        players.style.gridTemplateRows = "1fr";
+      } else {
+        players.style.gridTemplateColumns = "1fr 1fr";
+        players.style.gridTemplateRows = "1fr 1fr";
+      }
+    }
+  }
+
+  /* ===== RENDER PLAYERS ===== */
+
+  function renderPlayers() {
+    players.innerHTML = "";
+
+    game.players.forEach((p, i) => {
+      const div = document.createElement("div");
+      div.className = "player";
+      div.style.background = p.color.bg;
+      div.style.color = p.color.text;
+
+      div.innerHTML = `
+        <div class="tap-zone left">−</div>
+        <div class="tap-zone right">+</div>
+        <div class="player-name">${p.name}</div>
+        <div class="life">${p.life}</div>
+      `;
+
+      div.onclick = (e) => {
+        const rect = div.getBoundingClientRect();
+        p.life += e.clientX < rect.left + rect.width / 2 ? -1 : 1;
+        renderPlayers();
+      };
+
+      // 1v1 table orientation
+      if (game.players.length === 2) {
+        if (
+          (selectedOrientation === "portrait" && i === 0) ||
+          (selectedOrientation === "landscape" && i === 0)
+        ) {
+          div.style.transform = "rotate(180deg)";
+        }
+      }
+
+      players.appendChild(div);
+    });
+  }
+
+  /* ===== TIMER ===== */
+
+  function toggleTimer() {
+    if (game.timer.running) {
+      game.timer.running = false;
+      game.timer.elapsed += Math.floor((Date.now() - game.timer.start) / 1000);
+      clearInterval(timerInterval);
+    } else {
+      game.timer.running = true;
+      game.timer.start = Date.now();
+      timerInterval = setInterval(updateTimer, 1000);
+    }
+  }
+
+  function updateTimer() {
+    const total = game.timer.elapsed + Math.floor((Date.now() - game.timer.start) / 1000);
+    timer.textContent = formatTime(total);
+  }
+
+  function formatTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  /* ===== RESET / NAV ===== */
+
+  function resetGame() {
+    game.players.forEach(p => p.life = game.startingLife);
+    game.timer.running = false;
+    game.timer.elapsed = 0;
+    clearInterval(timerInterval);
+    timer.textContent = "0:00";
+    renderPlayers();
+  }
+
+  function goSetup() {
+    resetGame();
+    showScreen("setup");
+  }
+
+  function showScreen(id) {
+    document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+  }
+
+  updateSetupPlayers();
+</script>
+
+</body>
+</html>
